@@ -6,6 +6,9 @@
 <title>Martinas Company Limited — Enterprise Accounting System</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Google APIs -->
+<script src="https://apis.google.com/js/api.js" async defer onload="gapiLoaded()"></script>
+<script src="https://accounts.google.com/gsi/client" async defer onload="gisLoaded()"></script>
 <style>
   :root {
     --primary: #1a3a2a;
@@ -457,6 +460,25 @@
     .card { box-shadow: none; border: 1px solid #ccc; }
   }
 
+  /* GOOGLE DRIVE STATUS BAR */
+  .drive-bar {
+    position: fixed; top: 0; left: 260px; right: 0;
+    height: 36px; background: white; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: flex-end;
+    padding: 0 24px; gap: 12px; z-index: 90; font-size: 12px;
+  }
+  .drive-status { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+  .drive-dot { width: 8px; height: 8px; border-radius: 50%; background: #d1d5db; flex-shrink: 0; }
+  .drive-dot.connected { background: var(--success); }
+  .drive-dot.syncing { background: var(--warning); animation: blink 1s infinite; }
+  .drive-dot.error { background: var(--danger); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .btn-drive-connect { padding: 5px 14px; border-radius: 20px; border: 1.5px solid #4285f4; color: #4285f4; background: white; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; }
+  .btn-drive-connect:hover { background: #4285f4; color: white; }
+  .btn-drive-connect.connected { border-color: var(--success); color: var(--success); }
+  .btn-drive-connect.connected:hover { background: var(--success); color: white; }
+  .main-content { margin-top: 36px; }
+
   /* DASHBOARD CHART PLACEHOLDER */
   .chart-bar-container { display: flex; align-items: flex-end; gap: 8px; height: 120px; padding: 10px 0; }
   .chart-bar { flex: 1; border-radius: 4px 4px 0 0; min-width: 20px; transition: all 0.3s; position: relative; }
@@ -534,6 +556,21 @@
 
 <!-- MAIN APP -->
 <div id="app">
+
+  <!-- GOOGLE DRIVE STATUS BAR -->
+  <div class="drive-bar" id="driveBar">
+    <div class="drive-status">
+      <div class="drive-dot" id="driveDot"></div>
+      <span id="driveStatusText" style="color:var(--text-muted);">Google Drive: Not connected</span>
+    </div>
+    <span id="driveFileName" style="color:var(--text-light);font-family:'DM Mono',monospace;display:none;"></span>
+    <span id="driveLastSync" style="color:var(--text-light);display:none;"></span>
+    <button class="btn-drive-connect" id="driveConnectBtn" onclick="toggleDriveConnection()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 5.5L2 14l4.6 8h10.8l4.6-8-4.6-8.5H6.6zM12 3.5l3.1 5.4H8.9L12 3.5zm0 17l-3.1-5.4h6.2L12 20.5z"/></svg>
+      Connect Drive
+    </button>
+  </div>
+
   <!-- SIDEBAR -->
   <div class="sidebar">
     <div class="sidebar-header">
@@ -1111,6 +1148,77 @@
         </div>
       </div>
 
+      <!-- GOOGLE DRIVE SYNC -->
+      <div class="card mt-16" style="border: 2px solid #4285f4; border-radius: var(--radius);">
+        <div class="card-title" style="color:#4285f4;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="#4285f4" style="vertical-align:middle;margin-right:6px;"><path d="M6.6 5.5L2 14l4.6 8h10.8l4.6-8-4.6-8.5H6.6zM12 3.5l3.1 5.4H8.9L12 3.5zm0 17l-3.1-5.4h6.2L12 20.5z"/></svg>
+          Google Drive Sync
+        </div>
+
+        <!-- STEP 1: Enter Client ID -->
+        <div id="driveSetupPanel">
+          <div class="alert alert-info" style="margin-bottom:16px;">
+            ℹ️ <strong>One-time setup required.</strong> Enter your Google OAuth Client ID below. You only do this once — it saves permanently in the system.
+            <br><br>Follow <strong>Phase 1</strong> of the setup guide above to get your Client ID from <a href="https://console.cloud.google.com" target="_blank" style="color:var(--info);">console.cloud.google.com</a>.
+          </div>
+          <div class="form-row cols-2" style="align-items:flex-end;">
+            <div class="field">
+              <label>Google OAuth Client ID</label>
+              <input type="text" id="driveClientIdInput" placeholder="123456789-abc...apps.googleusercontent.com" style="font-family:'DM Mono',monospace;font-size:12px;">
+            </div>
+            <div class="field">
+              <label>Drive Folder Name (optional)</label>
+              <input type="text" id="driveFolderNameInput" placeholder="Martinas EAS Backups" value="Martinas EAS Backups">
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:4px;">
+            <button class="btn btn-accent" onclick="saveDriveClientId()">💾 Save Client ID & Activate</button>
+            <button class="btn btn-outline" id="driveSignInBtn" onclick="driveSignIn()" style="display:none;border-color:#4285f4;color:#4285f4;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 5.5L2 14l4.6 8h10.8l4.6-8-4.6-8.5H6.6zM12 3.5l3.1 5.4H8.9L12 3.5zm0 17l-3.1-5.4h6.2L12 20.5z"/></svg>
+              Sign in with Google
+            </button>
+          </div>
+          <div id="driveSetupStatus" style="margin-top:10px;font-size:13px;"></div>
+        </div>
+
+        <!-- CONNECTED STATE -->
+        <div id="driveConnectedPanel" style="display:none;">
+          <div class="alert alert-success">
+            ✅ <strong>Connected to Google Drive</strong> — Your data is automatically backed up to Drive every time you save a record.
+          </div>
+          <div class="grid-3" style="margin-top:16px;">
+            <div style="background:#f9f8f5;border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-align:center;">
+              <div style="font-size:24px;margin-bottom:8px;">☁️</div>
+              <strong style="font-size:13px;">Auto-Sync</strong>
+              <p style="font-size:12px;color:var(--text-muted);margin-top:4px;">Every save auto-syncs to Drive</p>
+              <div id="driveAutoSyncStatus" style="margin-top:8px;font-size:12px;color:var(--success);">Active</div>
+            </div>
+            <div style="background:#f9f8f5;border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-align:center;">
+              <div style="font-size:24px;margin-bottom:8px;">🔄</div>
+              <strong style="font-size:13px;">Manual Sync</strong>
+              <p style="font-size:12px;color:var(--text-muted);margin-top:4px;">Force push all data to Drive now</p>
+              <button class="btn btn-green btn-sm" style="margin-top:8px;width:100%;" onclick="driveSyncNow()">Sync Now</button>
+            </div>
+            <div style="background:#f9f8f5;border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-align:center;">
+              <div style="font-size:24px;margin-bottom:8px;">📥</div>
+              <strong style="font-size:13px;">Restore from Drive</strong>
+              <p style="font-size:12px;color:var(--text-muted);margin-top:4px;">Pull latest backup from Drive</p>
+              <button class="btn btn-outline btn-sm" style="margin-top:8px;width:100%;" onclick="driveRestore()">Restore</button>
+            </div>
+          </div>
+          <div style="margin-top:16px;display:flex;align-items:center;justify-content:space-between;font-size:13px;">
+            <div>
+              <span style="color:var(--text-muted);">Signed in as: </span>
+              <strong id="driveUserEmail"></strong>
+              &nbsp;|&nbsp;
+              <span style="color:var(--text-muted);">File: </span>
+              <span id="driveFileNameDisplay" style="font-family:'DM Mono',monospace;font-size:12px;"></span>
+            </div>
+            <button class="btn btn-red btn-sm" onclick="driveSignOut()">Disconnect Drive</button>
+          </div>
+        </div>
+      </div>
+
       <!-- EXCEL IMPORT -->
       <div class="card mt-16">
         <div class="card-title">📥 Import from Excel</div>
@@ -1662,6 +1770,8 @@ function db() {
 
 function dbSave(data) {
   localStorage.setItem(DB_KEY, JSON.stringify(data));
+  // Auto-sync to Google Drive if connected
+  if (typeof triggerAutoSync === 'function') triggerAutoSync();
 }
 
 function initDB() {
@@ -3118,6 +3228,256 @@ function deleteRecord(collection, id) {
 // PRINT
 // ============================================================
 function printSection(name) { window.print(); }
+
+// ============================================================
+// GOOGLE DRIVE INTEGRATION
+// ============================================================
+
+const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_FILE_NAME = 'martinas_eas_data.json';
+const DRIVE_DISCOVERY = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
+
+let gDriveState = {
+  clientId: null, folderName: 'Martinas EAS Backups',
+  tokenClient: null, accessToken: null,
+  fileId: null, folderId: null, userEmail: null,
+  gapiReady: false, gisReady: false, syncing: false,
+};
+
+function loadDriveConfig() {
+  const cfg = localStorage.getItem('martinas_drive_cfg');
+  if (!cfg) return;
+  const p = JSON.parse(cfg);
+  gDriveState.clientId = p.clientId || null;
+  gDriveState.folderName = p.folderName || 'Martinas EAS Backups';
+  gDriveState.fileId = p.fileId || null;
+  gDriveState.folderId = p.folderId || null;
+  const inp = document.getElementById('driveClientIdInput');
+  if (inp && gDriveState.clientId) inp.value = gDriveState.clientId;
+  const fn = document.getElementById('driveFolderNameInput');
+  if (fn) fn.value = gDriveState.folderName;
+}
+
+function saveDriveConfig() {
+  localStorage.setItem('martinas_drive_cfg', JSON.stringify({
+    clientId: gDriveState.clientId, folderName: gDriveState.folderName,
+    fileId: gDriveState.fileId, folderId: gDriveState.folderId,
+  }));
+}
+
+function gapiLoaded() {
+  gapi.load('client', async () => {
+    await gapi.client.init({ discoveryDocs: [DRIVE_DISCOVERY] });
+    gDriveState.gapiReady = true;
+    checkDriveReady();
+  });
+}
+
+function gisLoaded() {
+  gDriveState.gisReady = true;
+  checkDriveReady();
+}
+
+function checkDriveReady() {
+  if (gDriveState.gapiReady && gDriveState.gisReady && gDriveState.clientId) {
+    initTokenClient();
+    const btn = document.getElementById('driveSignInBtn');
+    if (btn) btn.style.display = 'inline-flex';
+  }
+}
+
+function initTokenClient() {
+  if (!gDriveState.clientId) return;
+  gDriveState.tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: gDriveState.clientId,
+    scope: DRIVE_SCOPES,
+    callback: async (tokenResponse) => {
+      if (tokenResponse.error) { setDriveStatus('error', 'Auth failed: ' + tokenResponse.error); return; }
+      gDriveState.accessToken = tokenResponse.access_token;
+      gapi.client.setToken({ access_token: tokenResponse.access_token });
+      try {
+        const info = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: 'Bearer ' + tokenResponse.access_token } });
+        const u = await info.json();
+        gDriveState.userEmail = u.email || 'Connected';
+      } catch(e) { gDriveState.userEmail = 'Connected'; }
+      await ensureDriveFolder();
+      await findOrCreateDriveFile();
+      onDriveConnected();
+    },
+  });
+}
+
+function saveDriveClientId() {
+  const clientId = document.getElementById('driveClientIdInput').value.trim();
+  const folderName = document.getElementById('driveFolderNameInput').value.trim() || 'Martinas EAS Backups';
+  const status = document.getElementById('driveSetupStatus');
+  if (!clientId || !clientId.includes('.apps.googleusercontent.com')) {
+    status.innerHTML = '<span style="color:var(--danger);">❌ Please enter a valid Client ID (ends with .apps.googleusercontent.com)</span>'; return;
+  }
+  gDriveState.clientId = clientId;
+  gDriveState.folderName = folderName;
+  saveDriveConfig();
+  if (gDriveState.gapiReady && gDriveState.gisReady) {
+    initTokenClient();
+    const btn = document.getElementById('driveSignInBtn');
+    if (btn) btn.style.display = 'inline-flex';
+    status.innerHTML = '<span style="color:var(--success);">✅ Client ID saved! Now click "Sign in with Google".</span>';
+  } else {
+    status.innerHTML = '<span style="color:var(--warning);">⏳ Google APIs loading... try clicking Sign In in a moment.</span>';
+    setTimeout(() => { if (gDriveState.gapiReady && gDriveState.gisReady) { initTokenClient(); document.getElementById('driveSignInBtn').style.display='inline-flex'; } }, 3000);
+  }
+  addAudit('Drive Config', 'System', 'Google OAuth Client ID saved');
+}
+
+function driveSignIn() {
+  if (!gDriveState.tokenClient) { notify('Save your Client ID first.', 'danger'); return; }
+  gDriveState.tokenClient.requestAccessToken({ prompt: 'consent' });
+}
+
+function driveSignOut() {
+  if (!confirm('Disconnect Google Drive? Your local data stays safe.')) return;
+  if (gDriveState.accessToken) google.accounts.oauth2.revoke(gDriveState.accessToken);
+  gDriveState.accessToken = null; gDriveState.userEmail = null;
+  onDriveDisconnected();
+  addAudit('Drive Disconnect', 'System', 'Google Drive disconnected');
+  notify('Disconnected from Google Drive', 'warning');
+}
+
+function toggleDriveConnection() {
+  if (gDriveState.accessToken) { driveSignOut(); }
+  else { showSection('backup'); setTimeout(() => document.getElementById('driveSetupPanel')?.scrollIntoView({behavior:'smooth'}), 400); }
+}
+
+function onDriveConnected() {
+  setDriveStatus('connected', 'Drive synced');
+  const btn = document.getElementById('driveConnectBtn');
+  if (btn) { btn.innerHTML = '☁️ Drive Connected'; btn.classList.add('connected'); }
+  document.getElementById('driveSetupPanel').style.display = 'none';
+  document.getElementById('driveConnectedPanel').style.display = 'block';
+  const emailEl = document.getElementById('driveUserEmail'); if (emailEl) emailEl.textContent = gDriveState.userEmail || '';
+  const fileEl = document.getElementById('driveFileNameDisplay'); if (fileEl) fileEl.textContent = DRIVE_FILE_NAME;
+  const fnEl = document.getElementById('driveFileName'); if (fnEl) { fnEl.textContent = DRIVE_FILE_NAME; fnEl.style.display = 'inline'; }
+  driveSyncNow();
+  addAudit('Drive Connect', 'System', `Connected as ${gDriveState.userEmail}`);
+  notify('✅ Google Drive connected! Auto-sync is active.', 'success');
+}
+
+function onDriveDisconnected() {
+  setDriveStatus('disconnected', 'Google Drive: Not connected');
+  const btn = document.getElementById('driveConnectBtn');
+  if (btn) { btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 5.5L2 14l4.6 8h10.8l4.6-8-4.6-8.5H6.6zM12 3.5l3.1 5.4H8.9L12 3.5zm0 17l-3.1-5.4h6.2L12 20.5z"/></svg> Connect Drive'; btn.classList.remove('connected'); }
+  document.getElementById('driveSetupPanel').style.display = 'block';
+  document.getElementById('driveConnectedPanel').style.display = 'none';
+  const fnEl = document.getElementById('driveFileName'); if (fnEl) fnEl.style.display = 'none';
+  const syncEl = document.getElementById('driveLastSync'); if (syncEl) syncEl.style.display = 'none';
+}
+
+function setDriveStatus(state, text) {
+  const dot = document.getElementById('driveDot');
+  const txt = document.getElementById('driveStatusText');
+  if (!dot || !txt) return;
+  dot.className = 'drive-dot';
+  if (state === 'connected') { dot.classList.add('connected'); txt.style.color = 'var(--success)'; }
+  else if (state === 'syncing') { dot.classList.add('syncing'); txt.style.color = 'var(--warning)'; }
+  else if (state === 'error') { dot.classList.add('error'); txt.style.color = 'var(--danger)'; }
+  else { txt.style.color = 'var(--text-muted)'; }
+  txt.textContent = text;
+}
+
+async function ensureDriveFolder() {
+  if (gDriveState.folderId) return;
+  try {
+    const q = `name='${gDriveState.folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const res = await gapi.client.drive.files.list({ q, fields: 'files(id,name)', spaces: 'drive' });
+    const files = res.result.files;
+    if (files && files.length > 0) { gDriveState.folderId = files[0].id; }
+    else {
+      const folderRes = await gapi.client.drive.files.create({ resource: { name: gDriveState.folderName, mimeType: 'application/vnd.google-apps.folder' }, fields: 'id' });
+      gDriveState.folderId = folderRes.result.id;
+    }
+    saveDriveConfig();
+  } catch(e) { console.warn('Drive folder error:', e); }
+}
+
+async function findOrCreateDriveFile() {
+  if (gDriveState.fileId) {
+    try { await gapi.client.drive.files.get({ fileId: gDriveState.fileId, fields: 'id' }); return; }
+    catch(e) { gDriveState.fileId = null; }
+  }
+  try {
+    const parents = gDriveState.folderId ? `'${gDriveState.folderId}' in parents and ` : '';
+    const q = `${parents}name='${DRIVE_FILE_NAME}' and trashed=false`;
+    const res = await gapi.client.drive.files.list({ q, fields: 'files(id,name)', spaces: 'drive' });
+    const files = res.result.files;
+    if (files && files.length > 0) { gDriveState.fileId = files[0].id; saveDriveConfig(); }
+  } catch(e) { console.warn('Drive file search error:', e); }
+}
+
+let _autoSyncTimer = null;
+function triggerAutoSync() {
+  if (!gDriveState.accessToken) return;
+  clearTimeout(_autoSyncTimer);
+  _autoSyncTimer = setTimeout(() => driveSyncNow(), 2500);
+}
+
+async function driveSyncNow() {
+  if (!gDriveState.accessToken) { notify('Connect Google Drive first.', 'warning'); return; }
+  if (gDriveState.syncing) return;
+  gDriveState.syncing = true;
+  setDriveStatus('syncing', 'Syncing to Drive...');
+  try {
+    const data = db();
+    const content = JSON.stringify({ _meta: { version: 'martinas_eas_v2', synced: new Date().toISOString(), syncedBy: gDriveState.userEmail }, ...data });
+    const blob = new Blob([content], { type: 'application/json' });
+    if (gDriveState.fileId) {
+      await fetch(`https://www.googleapis.com/upload/drive/v3/files/${gDriveState.fileId}?uploadType=media`, {
+        method: 'PATCH', headers: { 'Authorization': 'Bearer ' + gDriveState.accessToken, 'Content-Type': 'application/json' }, body: blob
+      });
+    } else {
+      const meta = { name: DRIVE_FILE_NAME, mimeType: 'application/json' };
+      if (gDriveState.folderId) meta.parents = [gDriveState.folderId];
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+      form.append('file', blob);
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + gDriveState.accessToken }, body: form
+      });
+      const result = await res.json();
+      gDriveState.fileId = result.id;
+      saveDriveConfig();
+    }
+    const syncTime = new Date().toLocaleTimeString();
+    setDriveStatus('connected', `Drive synced at ${syncTime}`);
+    const syncEl = document.getElementById('driveLastSync');
+    if (syncEl) { syncEl.textContent = `Last sync: ${syncTime}`; syncEl.style.display = 'inline'; }
+    gDriveState.syncing = false;
+  } catch(e) {
+    gDriveState.syncing = false;
+    setDriveStatus('error', 'Sync failed — check connection');
+    if (e.status === 401 && gDriveState.tokenClient) gDriveState.tokenClient.requestAccessToken({ prompt: '' });
+  }
+}
+
+async function driveRestore() {
+  if (!gDriveState.accessToken || !gDriveState.fileId) { notify('No Drive file found. Sync at least once first.', 'warning'); return; }
+  if (!confirm('Restore from Google Drive? This overwrites your current local data with the latest Drive backup.')) return;
+  setDriveStatus('syncing', 'Restoring from Drive...');
+  try {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${gDriveState.fileId}?alt=media`, { headers: { 'Authorization': 'Bearer ' + gDriveState.accessToken } });
+    const backup = await res.json();
+    const { _meta, ...cleanData } = backup;
+    if (!cleanData.users || !cleanData.income) { notify('Drive file invalid or corrupted.', 'danger'); setDriveStatus('error', 'Restore failed'); return; }
+    dbSave(cleanData);
+    setDriveStatus('connected', 'Restored from Drive ✓');
+    refreshDashboard();
+    addAudit('Drive Restore', 'System', `Data restored from Drive by ${gDriveState.userEmail}`);
+    notify('✅ Data restored from Google Drive!', 'success');
+  } catch(e) { setDriveStatus('error', 'Restore failed'); notify('Restore failed: ' + e.message, 'danger'); }
+}
+
+// ---- Load Drive config on DOMContentLoaded ----
+document.addEventListener('DOMContentLoaded', () => { loadDriveConfig(); });
+
 
 // ============================================================
 // BACKUP SECTION RENDER
